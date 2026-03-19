@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>2048 Lite</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <section id="entry" class="view">
+        <div class="entry-card">
+          <h1 class="title">2048</h1>
+          <div class="entry-record" id="entry-record">
+            <div class="record-row"><span>最高分</span><span id="record-score">--</span></div>
+            <div class="record-row"><span>用时</span><span id="record-time">--</span></div>
+            <div class="record-row"><span>时间</span><span id="record-date">--</span></div>
+          </div>
+          <div class="entry-actions">
+            <button id="btn-start" class="btn primary">开始</button>
+            <button id="btn-continue" class="btn ghost">继续</button>
+          </div>
+          <p class="entry-hint">滑动或使用 WASD / 方向键</p>
+        </div>
+      </section>
+
+      <section id="game" class="view hidden">
+        <header class="topbar">
+          <div class="brand">2048</div>
+          <div class="best">最高分 <span id="best-score">0</span></div>
+          <div class="actions">
+            <button id="btn-undo" class="btn ghost">撤回</button>
+            <button id="btn-restart" class="btn ghost">重开</button>
+            <button id="btn-back" class="btn ghost">入口</button>
+          </div>
+        </header>
+
+        <main class="board-wrap">
+          <div id="board" class="board" aria-label="2048 board"></div>
+        </main>
+
+        <div id="game-over" class="overlay hidden">
+          <div class="overlay-card">
+            <div class="overlay-title">游戏结束</div>
+            <div class="overlay-actions">
+              <button id="btn-over-restart" class="btn primary">再来一局</button>
+              <button id="btn-over-entry" class="btn ghost">返回入口</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
