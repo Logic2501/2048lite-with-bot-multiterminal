@@ -1,7 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
   <head>
-    <meta name="app-version" content="1.0.18" />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
     <title>2048 Lite</title>
@@ -128,9 +127,36 @@ body {
   font-weight: 600;
 }
 
-.best {
-  font-size: 14px;
-  color: var(--muted);
+.scoreboard {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.score-panel {
+  min-width: 82px;
+  padding: 8px 10px 7px;
+  border-radius: 10px;
+  background: #bbada0;
+  color: #f9f6f2;
+  text-align: center;
+  line-height: 1.1;
+}
+
+.score-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #eee4da;
+  text-transform: uppercase;
+}
+
+.score-value {
+  display: block;
+  margin-top: 4px;
+  font-size: 22px;
+  font-weight: 700;
 }
 
 .actions {
@@ -233,8 +259,17 @@ body {
   }
 
   .topbar {
-    flex-direction: column;
-    align-items: flex-start;
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  .scoreboard {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .score-panel {
+    flex: 1 1 0;
   }
 }
 
@@ -261,7 +296,16 @@ body {
       <section id="game" class="view hidden">
         <header class="topbar">
           <div class="brand">2048</div>
-          <div class="best">最高分 <span id="best-score">0</span></div>
+          <div class="scoreboard">
+            <div class="score-panel">
+              <span class="score-label">分数</span>
+              <span class="score-value" id="score">0</span>
+            </div>
+            <div class="score-panel">
+              <span class="score-label">最高分</span>
+              <span class="score-value" id="best-score">0</span>
+            </div>
+          </div>
           <div class="actions">
             <button id="btn-undo" class="btn ghost">撤回</button>
             <button id="btn-restart" class="btn ghost">重开</button>
@@ -323,9 +367,15 @@ function createTile(state, cell, value) {
 
 function restoreFromSave(state, saved) {
   state.size = saved.size || SIZE;
-  state.boardCells = Array.from(saved.boardCells || Array(state.size * state.size).fill(null));
+  state.boardCells = Array(state.size * state.size).fill(null);
   state.tiles = new Map();
+  let maxTileId = 0;
   (saved.tiles || []).forEach((t) => {
+    if (!t || typeof t.id !== "number" || typeof t.value !== "number" || typeof t.cell !== "number") {
+      return;
+    }
+    if (t.cell < 0 || t.cell >= state.boardCells.length) return;
+    if (state.boardCells[t.cell] !== null) return;
     state.tiles.set(t.id, {
       id: t.id,
       value: t.value,
@@ -334,8 +384,10 @@ function restoreFromSave(state, saved) {
       mergedFrom: null,
       isNew: false,
     });
+    state.boardCells[t.cell] = t.id;
+    if (t.id > maxTileId) maxTileId = t.id;
   });
-  state.nextTileId = saved.nextTileId || 1;
+  state.nextTileId = Math.max(saved.nextTileId || 1, maxTileId + 1);
   state.score = saved.score || 0;
   state.elapsedMs = saved.elapsedMs || 0;
   state.startTime = saved.startTime || 0;
@@ -775,7 +827,6 @@ function saveCurrentGame(state) {
     elapsedMs: state.elapsedMs,
     startTime: state.startTime,
     nextTileId: state.nextTileId,
-    boardCells: state.boardCells,
     tiles: Array.from(state.tiles.values()).map((tile) => ({
       id: tile.id,
       value: tile.value,
@@ -798,6 +849,7 @@ const ANIM_MS = 120;
 function createGame(renderer, onBestUpdate) {
   const state = createEmptyState();
   let bestRecord = null;
+  let scoreListener = null;
 
   const updateBest = () => {
     if (!bestRecord) {
@@ -811,6 +863,10 @@ function createGame(renderer, onBestUpdate) {
       };
       if (onBestUpdate) onBestUpdate(bestRecord);
     }
+  };
+
+  const notifyScore = () => {
+    if (scoreListener) scoreListener(state.score);
   };
 
   const renderAll = () => {
@@ -847,6 +903,7 @@ function createGame(renderer, onBestUpdate) {
     });
     renderer.clearTransient();
     renderAll();
+    notifyScore();
     saveCurrentGame(state);
   };
 
@@ -862,6 +919,7 @@ function createGame(renderer, onBestUpdate) {
     restoreTimer(state, state.elapsedMs);
     renderer.clearTransient();
     renderAll();
+    notifyScore();
   };
 
   const handleMove = (dir) => {
@@ -879,6 +937,7 @@ function createGame(renderer, onBestUpdate) {
     updateBest();
     saveCurrentGame(state);
     renderAll();
+    notifyScore();
     runAnimation(state, ANIM_MS, () => {
       pruneMergedOut();
       clearTransientState();
@@ -898,6 +957,7 @@ function createGame(renderer, onBestUpdate) {
     saveCurrentGame(state);
     renderer.clearTransient();
     renderAll();
+    notifyScore();
   };
 
   const restart = () => {
@@ -920,6 +980,10 @@ function createGame(renderer, onBestUpdate) {
     },
     getBestRecord() {
       return bestRecord;
+    },
+    setScoreListener(listener) {
+      scoreListener = listener;
+      notifyScore();
     },
     clearSave,
   };
@@ -1011,6 +1075,7 @@ const btnBack = document.getElementById("btn-back");
 const btnOverRestart = document.getElementById("btn-over-restart");
 const btnOverEntry = document.getElementById("btn-over-entry");
 
+const scoreEl = document.getElementById("score");
 const bestScoreEl = document.getElementById("best-score");
 const recordScoreEl = document.getElementById("record-score");
 const recordTimeEl = document.getElementById("record-time");
@@ -1037,6 +1102,9 @@ const updateBestScore = (record) => {
 };
 
 const game = createGame(renderer, updateBestScore);
+game.setScoreListener((score) => {
+  scoreEl.textContent = score;
+});
 
 const refreshContinue = () => {
   const current = loadCurrentGame();
