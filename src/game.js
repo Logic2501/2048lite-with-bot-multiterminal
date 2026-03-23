@@ -43,6 +43,13 @@ export function createGame(renderer, onBestUpdate) {
     toRemove.forEach((id) => state.tiles.delete(id));
   };
 
+  const clearTransientState = () => {
+    state.tiles.forEach((tile) => {
+      tile.isNew = false;
+      tile.mergedFrom = null;
+    });
+  };
+
   const initBoard = () => {
     state.boardCells.fill(null);
     state.tiles.clear();
@@ -92,6 +99,7 @@ export function createGame(renderer, onBestUpdate) {
     renderAll();
     runAnimation(state, ANIM_MS, () => {
       pruneMergedOut();
+      clearTransientState();
       renderer.clearTransient();
       renderer.render(state);
       if (state.isGameOver) clearCurrentGame();
