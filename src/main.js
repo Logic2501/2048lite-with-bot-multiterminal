@@ -24,7 +24,7 @@ const btnBot = document.getElementById("btn-bot");
 const btnBotSlower = document.getElementById("btn-bot-slower");
 const btnBotFaster = document.getElementById("btn-bot-faster");
 const btnOverRestart = document.getElementById("btn-over-restart");
-const btnOverEntry = document.getElementById("btn-over-entry");
+const btnOverBoard = document.getElementById("btn-over-board");
 
 const scoreEl = document.getElementById("score");
 const bestScoreEl = document.getElementById("best-score");
@@ -34,6 +34,14 @@ const recordDateEl = document.getElementById("record-date");
 const botSpeedEl = document.getElementById("bot-speed");
 
 const renderer = createRenderer(boardEl, overlayEl);
+let gameOverOverlayDismissed = false;
+
+const renderGameView = () => {
+  renderer.render(game.state);
+  if (game.state.isGameOver && gameOverOverlayDismissed) {
+    renderer.showGameOver(false);
+  }
+};
 
 const updateEntryRecord = (record) => {
   if (!record || record.score === 0) {
@@ -91,6 +99,7 @@ const handlePlayerMove = (dir) => {
 
 const handleUndo = () => {
   stopBot();
+  gameOverOverlayDismissed = false;
   game.undo();
 };
 
@@ -101,6 +110,7 @@ const refreshContinue = () => {
 
 const showEntry = () => {
   stopBot();
+  gameOverOverlayDismissed = false;
   entryEl.classList.remove("hidden");
   gameEl.classList.add("hidden");
   renderer.showGameOver(false);
@@ -111,7 +121,7 @@ const showGame = () => {
   entryEl.classList.add("hidden");
   gameEl.classList.remove("hidden");
   renderer.measure();
-  renderer.render(game.state);
+  renderGameView();
 };
 
 const bestRecord = loadBestRecord() || { score: 0, durationMs: 0, timestamp: 0 };
@@ -122,6 +132,7 @@ refreshContinue();
 
 btnStart.addEventListener("click", () => {
   stopBot();
+  gameOverOverlayDismissed = false;
   clearCurrentGame();
   game.startNew();
   showGame();
@@ -129,6 +140,7 @@ btnStart.addEventListener("click", () => {
 
 btnContinue.addEventListener("click", () => {
   stopBot();
+  gameOverOverlayDismissed = false;
   const current = loadCurrentGame();
   if (!current) return;
   game.continueFrom(current);
@@ -138,6 +150,7 @@ btnContinue.addEventListener("click", () => {
 btnUndo.addEventListener("click", handleUndo);
 btnRestart.addEventListener("click", () => {
   stopBot();
+  gameOverOverlayDismissed = false;
   game.restart();
 });
 btnBack.addEventListener("click", () => {
@@ -161,9 +174,13 @@ if (btnBotFaster) {
 }
 btnOverRestart.addEventListener("click", () => {
   stopBot();
+  gameOverOverlayDismissed = false;
   game.restart();
 });
-btnOverEntry.addEventListener("click", () => showEntry());
+btnOverBoard.addEventListener("click", () => {
+  gameOverOverlayDismissed = true;
+  renderer.showGameOver(false);
+});
 
 bindInput(boardEl, {
   onMove: handlePlayerMove,
@@ -172,7 +189,7 @@ bindInput(boardEl, {
 
 window.addEventListener("resize", () => {
   renderer.measure();
-  renderer.render(game.state);
+  renderGameView();
 });
 
 updateBotUi({
