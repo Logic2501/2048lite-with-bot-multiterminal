@@ -1,6 +1,7 @@
 import { createRenderer } from "./render.js";
 import { createGame } from "./game.js";
 import { bindInput } from "./input.js";
+import { createStrategyBot, DELAY_STEP_MS } from "./bot.js";
 import {
   loadBestRecord,
   loadCurrentGame,
@@ -19,6 +20,9 @@ const btnContinue = document.getElementById("btn-continue");
 const btnUndo = document.getElementById("btn-undo");
 const btnRestart = document.getElementById("btn-restart");
 const btnBack = document.getElementById("btn-back");
+const btnBot = document.getElementById("btn-bot");
+const btnBotSlower = document.getElementById("btn-bot-slower");
+const btnBotFaster = document.getElementById("btn-bot-faster");
 const btnOverRestart = document.getElementById("btn-over-restart");
 const btnOverEntry = document.getElementById("btn-over-entry");
 
@@ -27,6 +31,7 @@ const bestScoreEl = document.getElementById("best-score");
 const recordScoreEl = document.getElementById("record-score");
 const recordTimeEl = document.getElementById("record-time");
 const recordDateEl = document.getElementById("record-date");
+const botSpeedEl = document.getElementById("bot-speed");
 
 const renderer = createRenderer(boardEl, overlayEl);
 
@@ -53,12 +58,49 @@ game.setScoreListener((score) => {
   scoreEl.textContent = score;
 });
 
+const updateBotUi = ({ running, delayMs, minDelayMs, maxDelayMs }) => {
+  if (!btnBot) return;
+  btnBot.textContent = running ? "停止托管" : "托管";
+  btnBot.classList.toggle("active", running);
+  if (botSpeedEl) {
+    botSpeedEl.textContent = `${delayMs}ms`;
+  }
+  if (btnBotFaster) {
+    btnBotFaster.disabled = delayMs <= minDelayMs;
+  }
+  if (btnBotSlower) {
+    btnBotSlower.disabled = delayMs >= maxDelayMs;
+  }
+};
+
+const bot = createStrategyBot({
+  getState: () => game.getBotState(),
+  requestMove: (dir) => game.handleMove(dir),
+  onChange: updateBotUi,
+  delayMs: 180,
+});
+
+const stopBot = () => {
+  bot.stop();
+};
+
+const handlePlayerMove = (dir) => {
+  stopBot();
+  game.handleMove(dir);
+};
+
+const handleUndo = () => {
+  stopBot();
+  game.undo();
+};
+
 const refreshContinue = () => {
   const current = loadCurrentGame();
   btnContinue.disabled = current === null;
 };
 
 const showEntry = () => {
+  stopBot();
   entryEl.classList.remove("hidden");
   gameEl.classList.add("hidden");
   renderer.showGameOver(false);
@@ -79,32 +121,62 @@ game.setBestRecord(bestRecord);
 refreshContinue();
 
 btnStart.addEventListener("click", () => {
+  stopBot();
   clearCurrentGame();
   game.startNew();
   showGame();
 });
 
 btnContinue.addEventListener("click", () => {
+  stopBot();
   const current = loadCurrentGame();
   if (!current) return;
   game.continueFrom(current);
   showGame();
 });
 
-btnUndo.addEventListener("click", () => game.undo());
-btnRestart.addEventListener("click", () => game.restart());
+btnUndo.addEventListener("click", handleUndo);
+btnRestart.addEventListener("click", () => {
+  stopBot();
+  game.restart();
+});
 btnBack.addEventListener("click", () => {
   showEntry();
 });
-btnOverRestart.addEventListener("click", () => game.restart());
+if (btnBot) {
+  btnBot.addEventListener("click", () => {
+    if (game.state.isGameOver) return;
+    bot.toggle();
+  });
+}
+if (btnBotSlower) {
+  btnBotSlower.addEventListener("click", () => {
+    bot.adjustDelay(DELAY_STEP_MS);
+  });
+}
+if (btnBotFaster) {
+  btnBotFaster.addEventListener("click", () => {
+    bot.adjustDelay(-DELAY_STEP_MS);
+  });
+}
+btnOverRestart.addEventListener("click", () => {
+  stopBot();
+  game.restart();
+});
 btnOverEntry.addEventListener("click", () => showEntry());
 
 bindInput(boardEl, {
-  onMove: (dir) => game.handleMove(dir),
-  onUndo: () => game.undo(),
+  onMove: handlePlayerMove,
+  onUndo: handleUndo,
 });
 
 window.addEventListener("resize", () => {
   renderer.measure();
   renderer.render(game.state);
+});
+
+updateBotUi({
+  running: false,
+  delayMs: bot.getDelay(),
+  ...bot.getDelayConfig(),
 });

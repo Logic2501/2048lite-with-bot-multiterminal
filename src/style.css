@@ -107,6 +107,12 @@ body {
   background: #fff;
 }
 
+.btn.active {
+  background: #1f1f1f;
+  color: #fff;
+  border-color: #1f1f1f;
+}
+
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -156,6 +162,25 @@ body {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.bot-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn.bot-step {
+  min-width: 34px;
+  padding-inline: 0;
+}
+
+.bot-speed {
+  min-width: 58px;
+  padding: 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
 }
 
 .board-wrap {

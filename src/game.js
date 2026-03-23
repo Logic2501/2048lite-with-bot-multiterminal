@@ -135,6 +135,18 @@ export function createGame(renderer, onBestUpdate) {
     clearCurrentGame();
   };
 
+  const getBotState = () => ({
+    size: state.size,
+    cells: state.boardCells.map((id) => {
+      if (id === null) return 0;
+      const tile = state.tiles.get(id);
+      return tile ? tile.value : 0;
+    }),
+    score: state.score,
+    isAnimating: state.isAnimating,
+    isGameOver: state.isGameOver,
+  });
+
   return {
     state,
     startNew,
@@ -152,6 +164,7 @@ export function createGame(renderer, onBestUpdate) {
       scoreListener = listener;
       notifyScore();
     },
+    getBotState,
     clearSave,
   };
 }

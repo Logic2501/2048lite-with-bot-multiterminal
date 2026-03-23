@@ -114,6 +114,12 @@ body {
   background: #fff;
 }
 
+.btn.active {
+  background: #1f1f1f;
+  color: #fff;
+  border-color: #1f1f1f;
+}
+
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -163,6 +169,25 @@ body {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.bot-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn.bot-step {
+  min-width: 34px;
+  padding-inline: 0;
+}
+
+.bot-speed {
+  min-width: 58px;
+  padding: 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
 }
 
 .board-wrap {
@@ -307,6 +332,12 @@ body {
             </div>
           </div>
           <div class="actions">
+            <div class="bot-controls">
+              <button id="btn-bot-slower" class="btn ghost bot-step" aria-label="降低托管速度">-</button>
+              <button id="btn-bot" class="btn ghost">托管</button>
+              <button id="btn-bot-faster" class="btn ghost bot-step" aria-label="提高托管速度">+</button>
+              <span id="bot-speed" class="bot-speed">180ms</span>
+            </div>
             <button id="btn-undo" class="btn ghost">撤回</button>
             <button id="btn-restart" class="btn ghost">重开</button>
             <button id="btn-back" class="btn ghost">入口</button>
@@ -968,6 +999,18 @@ function createGame(renderer, onBestUpdate) {
     clearCurrentGame();
   };
 
+  const getBotState = () => ({
+    size: state.size,
+    cells: state.boardCells.map((id) => {
+      if (id === null) return 0;
+      const tile = state.tiles.get(id);
+      return tile ? tile.value : 0;
+    }),
+    score: state.score,
+    isAnimating: state.isAnimating,
+    isGameOver: state.isGameOver,
+  });
+
   return {
     state,
     startNew,
@@ -985,6 +1028,7 @@ function createGame(renderer, onBestUpdate) {
       scoreListener = listener;
       notifyScore();
     },
+    getBotState,
     clearSave,
   };
 }
@@ -1055,6 +1099,335 @@ function bindInput(targetEl, { onMove, onUndo }) {
 
 
 
+// src/bot.js
+const DIRS = ["up", "left", "right", "down"];
+const DEFAULT_DELAY_MS = 180;
+const MIN_DELAY_MS = 150;
+const MAX_DELAY_MS = 360;
+const DELAY_STEP_MS = 20;
+const GRADIENT_WEIGHTS = [
+  [15, 14, 13, 12],
+  [8, 9, 10, 11],
+  [7, 6, 5, 4],
+  [0, 1, 2, 3],
+];
+
+function buildLines(size, dir) {
+  const lines = [];
+  if (dir === "left" || dir === "right") {
+    for (let row = 0; row < size; row += 1) {
+      const line = [];
+      for (let col = 0; col < size; col += 1) {
+        const actualCol = dir === "right" ? size - 1 - col : col;
+        line.push(row * size + actualCol);
+      }
+      lines.push(line);
+    }
+  } else {
+    for (let col = 0; col < size; col += 1) {
+      const line = [];
+      for (let row = 0; row < size; row += 1) {
+        const actualRow = dir === "down" ? size - 1 - row : row;
+        line.push(actualRow * size + col);
+      }
+      lines.push(line);
+    }
+  }
+  return lines;
+}
+
+function simulateMove(snapshot, dir) {
+  const size = snapshot.size;
+  const nextCells = Array.from(snapshot.cells);
+  let moved = false;
+  let scoreGain = 0;
+
+  buildLines(size, dir).forEach((line) => {
+    const values = line.map((index) => nextCells[index]).filter((value) => value !== 0);
+    const compacted = [];
+
+    for (let i = 0; i < values.length; i += 1) {
+      const value = values[i];
+      if (i + 1 < values.length && values[i + 1] === value) {
+        const merged = value * 2;
+        compacted.push(merged);
+        scoreGain += merged;
+        i += 1;
+      } else {
+        compacted.push(value);
+      }
+    }
+
+    for (let i = 0; i < line.length; i += 1) {
+      const nextValue = compacted[i] || 0;
+      const cellIndex = line[i];
+      if (nextCells[cellIndex] !== nextValue) moved = true;
+      nextCells[cellIndex] = nextValue;
+    }
+  });
+
+  return { moved, cells: nextCells, scoreGain };
+}
+
+function countEmpty(cells) {
+  let count = 0;
+  cells.forEach((value) => {
+    if (value === 0) count += 1;
+  });
+  return count;
+}
+
+function maxTile(cells) {
+  let max = 0;
+  cells.forEach((value) => {
+    if (value > max) max = value;
+  });
+  return max;
+}
+
+function logValue(value) {
+  return value > 0 ? Math.log2(value) : 0;
+}
+
+function gradientScore(cells, size) {
+  let score = 0;
+  for (let row = 0; row < size; row += 1) {
+    for (let col = 0; col < size; col += 1) {
+      score += logValue(cells[row * size + col]) * GRADIENT_WEIGHTS[row][col];
+    }
+  }
+  return score;
+}
+
+function reversePenalty(cells, size) {
+  let penalty = 0;
+  for (let row = 0; row < size; row += 1) {
+    for (let col = 0; col < size - 1; col += 1) {
+      const current = logValue(cells[row * size + col]);
+      const next = logValue(cells[row * size + col + 1]);
+      if (current < next) {
+        penalty += next - current;
+      }
+    }
+  }
+  for (let col = 0; col < size; col += 1) {
+    for (let row = 0; row < size - 1; row += 1) {
+      const current = logValue(cells[row * size + col]);
+      const next = logValue(cells[(row + 1) * size + col]);
+      if (current < next) {
+        penalty += next - current;
+      }
+    }
+  }
+  return penalty;
+}
+
+function cornerDistancePenalty(cells, size) {
+  const max = maxTile(cells);
+  if (max === 0) return 0;
+  const maxIndex = cells.indexOf(max);
+  const row = Math.floor(maxIndex / size);
+  const col = maxIndex % size;
+  return (row + col) * logValue(max);
+}
+
+function cornerBroken(cells, size) {
+  const corner = cells[0];
+  const max = maxTile(cells);
+  if (corner !== max) return true;
+  const right = cells[1] || 0;
+  const down = cells[size] || 0;
+  return right > corner || down > corner;
+}
+
+function cornerBreakPenalty(cells, size) {
+  if (!cornerBroken(cells, size)) return 0;
+  let penalty = 1;
+  for (let col = 0; col < size - 1; col += 1) {
+    const current = cells[col];
+    const next = cells[col + 1];
+    if (current < next) penalty += next - current;
+  }
+  for (let row = 0; row < size - 1; row += 1) {
+    const current = cells[row * size];
+    const next = cells[(row + 1) * size];
+    if (current < next) penalty += next - current;
+  }
+  return penalty;
+}
+
+function mergePotential(cells, size) {
+  let merges = 0;
+  for (let row = 0; row < size; row += 1) {
+    for (let col = 0; col < size; col += 1) {
+      const value = cells[row * size + col];
+      if (value === 0) continue;
+      if (col + 1 < size && cells[row * size + col + 1] === value) {
+        merges += logValue(value);
+      }
+      if (row + 1 < size && cells[(row + 1) * size + col] === value) {
+        merges += logValue(value);
+      }
+    }
+  }
+  return merges;
+}
+
+function recoveryScore(beforeCells, afterCells, size) {
+  if (!cornerBroken(beforeCells, size)) return 0;
+  const distanceGain =
+    cornerDistancePenalty(beforeCells, size) - cornerDistancePenalty(afterCells, size);
+  const reverseGain = reversePenalty(beforeCells, size) - reversePenalty(afterCells, size);
+  const gradientGain = gradientScore(afterCells, size) - gradientScore(beforeCells, size);
+  const unbrokenBonus = cornerBroken(afterCells, size) ? 0 : 6;
+  return distanceGain * 2 + reverseGain + gradientGain * 0.12 + unbrokenBonus;
+}
+
+function evaluate(snapshot, result) {
+  const gradient = gradientScore(result.cells, snapshot.size);
+  const reverse = reversePenalty(result.cells, snapshot.size);
+  const cornerDistance = cornerDistancePenalty(result.cells, snapshot.size);
+  const cornerBreak = cornerBreakPenalty(result.cells, snapshot.size);
+  const empty = countEmpty(result.cells);
+  const merge = mergePotential(result.cells, snapshot.size);
+  const recovery = recoveryScore(snapshot.cells, result.cells, snapshot.size);
+  return (
+    4 * gradient -
+    8 * reverse -
+    40 * cornerDistance -
+    120 * cornerBreak +
+    12 * empty +
+    6 * merge +
+    30 * recovery
+  );
+}
+
+function chooseBotMove(snapshot) {
+  if (!snapshot || snapshot.isGameOver) return null;
+
+  let best = null;
+  DIRS.forEach((dir, index) => {
+    const result = simulateMove(snapshot, dir);
+    if (!result.moved) return;
+    const score = evaluate(snapshot, result) - index * 0.001;
+    if (!best || score > best.score) {
+      best = { dir, score };
+    }
+  });
+
+  return best ? best.dir : null;
+}
+
+function createStrategyBot({
+  getState,
+  requestMove,
+  onChange,
+  delayMs = DEFAULT_DELAY_MS,
+}) {
+  let running = false;
+  let timerId = null;
+  let currentDelayMs = Math.max(MIN_DELAY_MS, Math.min(MAX_DELAY_MS, delayMs));
+
+  const emitChange = () => {
+    if (onChange) {
+      onChange({
+        running,
+        delayMs: currentDelayMs,
+        minDelayMs: MIN_DELAY_MS,
+        maxDelayMs: MAX_DELAY_MS,
+      });
+    }
+  };
+
+  const clearTimer = () => {
+    if (timerId !== null) {
+      clearTimeout(timerId);
+      timerId = null;
+    }
+  };
+
+  const schedule = () => {
+    clearTimer();
+    if (!running) return;
+    timerId = window.setTimeout(tick, currentDelayMs);
+  };
+
+  const stop = () => {
+    if (!running && timerId === null) return;
+    running = false;
+    clearTimer();
+    emitChange();
+  };
+
+  const tick = () => {
+    timerId = null;
+    if (!running) return;
+    const snapshot = getState();
+    if (!snapshot || snapshot.isGameOver) {
+      stop();
+      return;
+    }
+    if (snapshot.isAnimating) {
+      schedule();
+      return;
+    }
+    const dir = chooseBotMove(snapshot);
+    if (!dir) {
+      stop();
+      return;
+    }
+    requestMove(dir);
+    schedule();
+  };
+
+  const start = () => {
+    if (running) return;
+    running = true;
+    emitChange();
+    schedule();
+  };
+
+  const toggle = () => {
+    if (running) {
+      stop();
+    } else {
+      start();
+    }
+  };
+
+  return {
+    start,
+    stop,
+    toggle,
+    setDelay(nextDelayMs) {
+      const normalized = Math.max(MIN_DELAY_MS, Math.min(MAX_DELAY_MS, nextDelayMs));
+      if (normalized === currentDelayMs) return currentDelayMs;
+      currentDelayMs = normalized;
+      emitChange();
+      if (running) schedule();
+      return currentDelayMs;
+    },
+    adjustDelay(deltaMs) {
+      return this.setDelay(currentDelayMs + deltaMs);
+    },
+    getDelay() {
+      return currentDelayMs;
+    },
+    getDelayConfig() {
+      return {
+        minDelayMs: MIN_DELAY_MS,
+        maxDelayMs: MAX_DELAY_MS,
+        stepMs: DELAY_STEP_MS,
+      };
+    },
+    isRunning() {
+      return running;
+    },
+  };
+}
+
+
+
 // src/main.js
 
 
@@ -1069,6 +1442,9 @@ const overlayEl = document.getElementById("game-over");
 
 const btnStart = document.getElementById("btn-start");
 const btnContinue = document.getElementById("btn-continue");
+const btnBot = document.getElementById("btn-bot");
+const btnBotSlower = document.getElementById("btn-bot-slower");
+const btnBotFaster = document.getElementById("btn-bot-faster");
 const btnUndo = document.getElementById("btn-undo");
 const btnRestart = document.getElementById("btn-restart");
 const btnBack = document.getElementById("btn-back");
@@ -1080,6 +1456,7 @@ const bestScoreEl = document.getElementById("best-score");
 const recordScoreEl = document.getElementById("record-score");
 const recordTimeEl = document.getElementById("record-time");
 const recordDateEl = document.getElementById("record-date");
+const botSpeedEl = document.getElementById("bot-speed");
 
 const renderer = createRenderer(boardEl, overlayEl);
 
@@ -1106,12 +1483,49 @@ game.setScoreListener((score) => {
   scoreEl.textContent = score;
 });
 
+const updateBotUi = ({ running, delayMs, minDelayMs, maxDelayMs }) => {
+  if (!btnBot) return;
+  btnBot.textContent = running ? "停止托管" : "托管";
+  btnBot.classList.toggle("active", running);
+  if (botSpeedEl) {
+    botSpeedEl.textContent = `${delayMs}ms`;
+  }
+  if (btnBotFaster) {
+    btnBotFaster.disabled = delayMs <= minDelayMs;
+  }
+  if (btnBotSlower) {
+    btnBotSlower.disabled = delayMs >= maxDelayMs;
+  }
+};
+
+const bot = createStrategyBot({
+  getState: () => game.getBotState(),
+  requestMove: (dir) => game.handleMove(dir),
+  onChange: updateBotUi,
+  delayMs: 180,
+});
+
+const stopBot = () => {
+  bot.stop();
+};
+
+const handlePlayerMove = (dir) => {
+  stopBot();
+  game.handleMove(dir);
+};
+
+const handleUndo = () => {
+  stopBot();
+  game.undo();
+};
+
 const refreshContinue = () => {
   const current = loadCurrentGame();
   btnContinue.disabled = current === null;
 };
 
 const showEntry = () => {
+  stopBot();
   entryEl.classList.remove("hidden");
   gameEl.classList.add("hidden");
   renderer.showGameOver(false);
@@ -1132,34 +1546,65 @@ game.setBestRecord(bestRecord);
 refreshContinue();
 
 btnStart.addEventListener("click", () => {
+  stopBot();
   clearCurrentGame();
   game.startNew();
   showGame();
 });
 
 btnContinue.addEventListener("click", () => {
+  stopBot();
   const current = loadCurrentGame();
   if (!current) return;
   game.continueFrom(current);
   showGame();
 });
 
-btnUndo.addEventListener("click", () => game.undo());
-btnRestart.addEventListener("click", () => game.restart());
+if (btnBot) {
+  btnBot.addEventListener("click", () => {
+    if (game.state.isGameOver) return;
+    bot.toggle();
+  });
+}
+if (btnBotSlower) {
+  btnBotSlower.addEventListener("click", () => {
+    bot.adjustDelay(DELAY_STEP_MS);
+  });
+}
+if (btnBotFaster) {
+  btnBotFaster.addEventListener("click", () => {
+    bot.adjustDelay(-DELAY_STEP_MS);
+  });
+}
+
+btnUndo.addEventListener("click", handleUndo);
+btnRestart.addEventListener("click", () => {
+  stopBot();
+  game.restart();
+});
 btnBack.addEventListener("click", () => {
   showEntry();
 });
-btnOverRestart.addEventListener("click", () => game.restart());
+btnOverRestart.addEventListener("click", () => {
+  stopBot();
+  game.restart();
+});
 btnOverEntry.addEventListener("click", () => showEntry());
 
 bindInput(boardEl, {
-  onMove: (dir) => game.handleMove(dir),
-  onUndo: () => game.undo(),
+  onMove: handlePlayerMove,
+  onUndo: handleUndo,
 });
 
 window.addEventListener("resize", () => {
   renderer.measure();
   renderer.render(game.state);
+});
+
+updateBotUi({
+  running: false,
+  delayMs: bot.getDelay(),
+  ...bot.getDelayConfig(),
 });
 
 
