@@ -16,6 +16,7 @@ const ANIM_MS = 120;
 export function createGame(renderer, onBestUpdate) {
   const state = createEmptyState();
   let bestRecord = null;
+  let scoreListener = null;
 
   const updateBest = () => {
     if (!bestRecord) {
@@ -29,6 +30,10 @@ export function createGame(renderer, onBestUpdate) {
       };
       if (onBestUpdate) onBestUpdate(bestRecord);
     }
+  };
+
+  const notifyScore = () => {
+    if (scoreListener) scoreListener(state.score);
   };
 
   const renderAll = () => {
@@ -65,6 +70,7 @@ export function createGame(renderer, onBestUpdate) {
     });
     renderer.clearTransient();
     renderAll();
+    notifyScore();
     saveCurrentGame(state);
   };
 
@@ -80,6 +86,7 @@ export function createGame(renderer, onBestUpdate) {
     restoreTimer(state, state.elapsedMs);
     renderer.clearTransient();
     renderAll();
+    notifyScore();
   };
 
   const handleMove = (dir) => {
@@ -97,6 +104,7 @@ export function createGame(renderer, onBestUpdate) {
     updateBest();
     saveCurrentGame(state);
     renderAll();
+    notifyScore();
     runAnimation(state, ANIM_MS, () => {
       pruneMergedOut();
       clearTransientState();
@@ -116,6 +124,7 @@ export function createGame(renderer, onBestUpdate) {
     saveCurrentGame(state);
     renderer.clearTransient();
     renderAll();
+    notifyScore();
   };
 
   const restart = () => {
@@ -138,6 +147,10 @@ export function createGame(renderer, onBestUpdate) {
     },
     getBestRecord() {
       return bestRecord;
+    },
+    setScoreListener(listener) {
+      scoreListener = listener;
+      notifyScore();
     },
     clearSave,
   };

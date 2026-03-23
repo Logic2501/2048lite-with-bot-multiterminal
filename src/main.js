@@ -22,6 +22,7 @@ const btnBack = document.getElementById("btn-back");
 const btnOverRestart = document.getElementById("btn-over-restart");
 const btnOverEntry = document.getElementById("btn-over-entry");
 
+const scoreEl = document.getElementById("score");
 const bestScoreEl = document.getElementById("best-score");
 const recordScoreEl = document.getElementById("record-score");
 const recordTimeEl = document.getElementById("record-time");
@@ -48,6 +49,9 @@ const updateBestScore = (record) => {
 };
 
 const game = createGame(renderer, updateBestScore);
+game.setScoreListener((score) => {
+  scoreEl.textContent = score;
+});
 
 const refreshContinue = () => {
   const current = loadCurrentGame();

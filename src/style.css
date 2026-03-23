@@ -120,9 +120,36 @@ body {
   font-weight: 600;
 }
 
-.best {
-  font-size: 14px;
-  color: var(--muted);
+.scoreboard {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.score-panel {
+  min-width: 82px;
+  padding: 8px 10px 7px;
+  border-radius: 10px;
+  background: #bbada0;
+  color: #f9f6f2;
+  text-align: center;
+  line-height: 1.1;
+}
+
+.score-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #eee4da;
+  text-transform: uppercase;
+}
+
+.score-value {
+  display: block;
+  margin-top: 4px;
+  font-size: 22px;
+  font-weight: 700;
 }
 
 .actions {
@@ -225,7 +252,16 @@ body {
   }
 
   .topbar {
-    flex-direction: column;
-    align-items: flex-start;
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  .scoreboard {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .score-panel {
+    flex: 1 1 0;
   }
 }

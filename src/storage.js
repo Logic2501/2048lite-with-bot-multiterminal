@@ -38,7 +38,6 @@ export function saveCurrentGame(state) {
     elapsedMs: state.elapsedMs,
     startTime: state.startTime,
     nextTileId: state.nextTileId,
-    boardCells: state.boardCells,
     tiles: Array.from(state.tiles.values()).map((tile) => ({
       id: tile.id,
       value: tile.value,

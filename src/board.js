@@ -32,9 +32,15 @@ export function createTile(state, cell, value) {
 
 export function restoreFromSave(state, saved) {
   state.size = saved.size || SIZE;
-  state.boardCells = Array.from(saved.boardCells || Array(state.size * state.size).fill(null));
+  state.boardCells = Array(state.size * state.size).fill(null);
   state.tiles = new Map();
+  let maxTileId = 0;
   (saved.tiles || []).forEach((t) => {
+    if (!t || typeof t.id !== "number" || typeof t.value !== "number" || typeof t.cell !== "number") {
+      return;
+    }
+    if (t.cell < 0 || t.cell >= state.boardCells.length) return;
+    if (state.boardCells[t.cell] !== null) return;
     state.tiles.set(t.id, {
       id: t.id,
       value: t.value,
@@ -43,8 +49,10 @@ export function restoreFromSave(state, saved) {
       mergedFrom: null,
       isNew: false,
     });
+    state.boardCells[t.cell] = t.id;
+    if (t.id > maxTileId) maxTileId = t.id;
   });
-  state.nextTileId = saved.nextTileId || 1;
+  state.nextTileId = Math.max(saved.nextTileId || 1, maxTileId + 1);
   state.score = saved.score || 0;
   state.elapsedMs = saved.elapsedMs || 0;
   state.startTime = saved.startTime || 0;
