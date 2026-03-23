@@ -1,4 +1,62 @@
 export const SIZE = 4;
+export const TileStatus = Object.freeze({
+  IDLE: "idle",
+  NEW: "new",
+  MERGED: "merged",
+  REMOVED: "removed",
+});
+
+export class Tile {
+  constructor(id, value, cell) {
+    this.id = id;
+    this.value = value;
+    this.cell = cell;
+    this.prevCell = null;
+    this.mergedFrom = null;
+    this.status = TileStatus.IDLE;
+  }
+
+  static fromSnapshot(data) {
+    return new Tile(data.id, data.value, data.cell);
+  }
+
+  prepareForTurn() {
+    this.prevCell = this.cell;
+    this.mergedFrom = null;
+    this.status = TileStatus.IDLE;
+  }
+
+  markNew() {
+    this.status = TileStatus.NEW;
+  }
+
+  markMerged(mergedFrom) {
+    this.mergedFrom = mergedFrom;
+    this.status = TileStatus.MERGED;
+  }
+
+  markRemoved() {
+    this.status = TileStatus.REMOVED;
+  }
+
+  clearTransient() {
+    this.prevCell = null;
+    this.mergedFrom = null;
+    this.status = TileStatus.IDLE;
+  }
+
+  isNew() {
+    return this.status === TileStatus.NEW;
+  }
+
+  isMerged() {
+    return this.status === TileStatus.MERGED;
+  }
+
+  isRemoved() {
+    return this.status === TileStatus.REMOVED;
+  }
+}
 
 export function createEmptyState() {
   return {
@@ -17,14 +75,7 @@ export function createEmptyState() {
 }
 
 export function createTile(state, cell, value) {
-  const tile = {
-    id: state.nextTileId++,
-    value,
-    cell,
-    prevCell: null,
-    mergedFrom: null,
-    isNew: false,
-  };
+  const tile = new Tile(state.nextTileId++, value, cell);
   state.tiles.set(tile.id, tile);
   state.boardCells[cell] = tile.id;
   return tile;
@@ -35,14 +86,7 @@ export function restoreFromSave(state, saved) {
   state.boardCells = Array.from(saved.boardCells || Array(state.size * state.size).fill(null));
   state.tiles = new Map();
   (saved.tiles || []).forEach((t) => {
-    state.tiles.set(t.id, {
-      id: t.id,
-      value: t.value,
-      cell: t.cell,
-      prevCell: null,
-      mergedFrom: null,
-      isNew: false,
-    });
+    state.tiles.set(t.id, Tile.fromSnapshot(t));
   });
   state.nextTileId = saved.nextTileId || 1;
   state.score = saved.score || 0;
@@ -62,7 +106,7 @@ export function addRandomTile(state) {
   const cell = empties[Math.floor(Math.random() * empties.length)];
   const value = Math.random() < 0.9 ? 2 : 4;
   const tile = createTile(state, cell, value);
-  tile.isNew = true;
+  tile.markNew();
   return tile;
 }
 
@@ -102,10 +146,7 @@ export function moveTiles(state, dir) {
   const mergedTo = new Map();
 
   state.tiles.forEach((tile) => {
-    tile.prevCell = tile.cell;
-    tile.mergedFrom = null;
-    tile.isNew = false;
-    tile.isMergedOut = false;
+    tile.prepareForTurn();
   });
 
   const newBoard = Array(SIZE * SIZE).fill(null);
@@ -123,8 +164,8 @@ export function moveTiles(state, dir) {
         if (nextTile && nextTile.value === tile.value) {
           const base = tile.value;
           tile.value = base * 2;
-          tile.mergedFrom = [id, nextId];
-          nextTile.isMergedOut = true;
+          tile.markMerged([id, nextId]);
+          nextTile.markRemoved();
           mergedOutIds.add(nextId);
           mergedTo.set(nextId, id);
           scoreGain += tile.value;
@@ -197,18 +238,19 @@ export function restoreSnapshot(state, snapshot) {
   state.boardCells = Array.from(snapshot.boardCells);
   state.tiles = new Map();
   snapshot.tiles.forEach((tile) => {
-    state.tiles.set(tile.id, {
-      id: tile.id,
-      value: tile.value,
-      cell: tile.cell,
-      prevCell: null,
-      mergedFrom: null,
-      isNew: false,
-    });
+    state.tiles.set(tile.id, Tile.fromSnapshot(tile));
   });
   state.score = snapshot.score;
   state.elapsedMs = snapshot.elapsedMs;
   state.startTime = snapshot.startTime;
   state.nextTileId = snapshot.nextTileId;
   state.isGameOver = false;
+}
+
+export function clearTileTransientState(state) {
+  state.tiles.forEach((tile) => {
+    if (!tile.isRemoved()) {
+      tile.clearTransient();
+    }
+  });
 }

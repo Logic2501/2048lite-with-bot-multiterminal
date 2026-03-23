@@ -11,6 +11,13 @@ const distDir = path.join(root, "dist");
 const args = process.argv.slice(2);
 const bumpIndex = args.indexOf("--bump");
 const bump = bumpIndex >= 0 ? args[bumpIndex + 1] : null;
+const setVersionIndex = args.indexOf("--set-version");
+const setVersion = setVersionIndex >= 0 ? args[setVersionIndex + 1] : null;
+const autoBump = args.includes("--auto-bump");
+const syncVersion = args.includes("--sync-version");
+const overwrite = args.includes("--overwrite");
+const printVersion = args.includes("--print-version");
+const help = args.includes("--help");
 
 const readText = (file) => fs.readFileSync(file, "utf8");
 const writeText = (file, content) => fs.writeFileSync(file, content, "utf8");
@@ -28,6 +35,36 @@ const bumpVersion = (v, kind) => {
   if (kind === "minor") return { major: v.major, minor: v.minor + 1, patch: 0 };
   if (kind === "patch") return { major: v.major, minor: v.minor, patch: v.patch + 1 };
   throw new Error("Unknown bump type. Use patch|minor|major");
+};
+
+const parseCliVersion = (raw) => parseVersion(raw);
+
+const getOutPath = (version) => path.join(distDir, `2048lite-${version}.html`);
+
+const findNextAvailableVersion = (version) => {
+  let next = { ...version };
+  while (fs.existsSync(getOutPath(formatVersion(next)))) {
+    next = bumpVersion(next, "patch");
+  }
+  return next;
+};
+
+const writeVersionFile = (version) => {
+  writeText(versionPath, `${formatVersion(version)}\n`);
+};
+
+const printHelp = () => {
+  console.log(`Usage: node tools/build-single.mjs [options]
+
+Options:
+  --bump <patch|minor|major>  Increment VERSION before building
+  --set-version <x.y.z>       Set VERSION explicitly before building
+  --auto-bump                 If target output exists, bump patch until a free version is found
+  --sync-version              Write the auto-selected version back to VERSION
+  --overwrite                 Overwrite an existing dist file for the selected version
+  --print-version             Print the resolved version and exit
+  --help                      Show this help
+`);
 };
 
 const resolveModule = (base, spec) => {
@@ -92,13 +129,49 @@ const ensureDir = (dir) => {
 };
 
 const main = () => {
+  if (help) {
+    printHelp();
+    return;
+  }
+
+  if (bumpIndex >= 0 && !bump) {
+    throw new Error("Missing value for --bump. Use patch|minor|major");
+  }
+
+  if (setVersionIndex >= 0 && !setVersion) {
+    throw new Error("Missing value for --set-version. Use x.y.z");
+  }
+
+  if (bump && setVersion) {
+    throw new Error("Use either --bump or --set-version, not both");
+  }
+
   const rawVersion = readText(versionPath);
   let current = parseVersion(rawVersion);
-  if (bump) {
+
+  if (setVersion) {
+    current = parseCliVersion(setVersion);
+    writeVersionFile(current);
+  } else if (bump) {
     current = bumpVersion(current, bump);
-    writeText(versionPath, formatVersion(current) + "\n");
+    writeVersionFile(current);
   }
+
+  if (autoBump) {
+    const available = findNextAvailableVersion(current);
+    const changed = formatVersion(available) !== formatVersion(current);
+    current = available;
+    if (changed && syncVersion) {
+      writeVersionFile(current);
+    }
+  }
+
   const version = formatVersion(current);
+
+  if (printVersion) {
+    console.log(version);
+    return;
+  }
 
   const html = readText(indexPath);
   const css = readText(stylePath);
@@ -127,8 +200,8 @@ const main = () => {
   }
 
   ensureDir(distDir);
-  const outPath = path.join(distDir, `2048lite-${version}.html`);
-  if (fs.existsSync(outPath)) {
+  const outPath = getOutPath(version);
+  if (fs.existsSync(outPath) && !overwrite) {
     throw new Error(`Output already exists: ${outPath}`);
   }
   writeText(outPath, output);

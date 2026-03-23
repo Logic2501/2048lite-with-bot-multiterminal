@@ -1,6 +1,7 @@
 import { createRenderer } from "./render.js";
 import { createGame } from "./game.js";
 import { bindInput } from "./input.js";
+import { createUiShell } from "./ui-shell.js";
 import {
   loadBestRecord,
   loadCurrentGame,
@@ -28,72 +29,48 @@ const recordTimeEl = document.getElementById("record-time");
 const recordDateEl = document.getElementById("record-date");
 
 const renderer = createRenderer(boardEl, overlayEl);
+const ui = createUiShell({
+  entryEl,
+  gameEl,
+  renderer,
+  btnContinue,
+  bestScoreEl,
+  recordScoreEl,
+  recordTimeEl,
+  recordDateEl,
+  loadCurrentGame,
+  saveBestRecord,
+  formatDuration,
+});
 
-const updateEntryRecord = (record) => {
-  if (!record || record.score === 0) {
-    recordScoreEl.textContent = "--";
-    recordTimeEl.textContent = "--";
-    recordDateEl.textContent = "--";
-    return;
-  }
-  recordScoreEl.textContent = record.score;
-  recordTimeEl.textContent = formatDuration(record.durationMs);
-  recordDateEl.textContent = new Date(record.timestamp).toLocaleString();
-};
-
-const updateBestScore = (record) => {
-  bestScoreEl.textContent = record ? record.score : 0;
-  updateEntryRecord(record);
-  if (record) saveBestRecord(record);
-};
-
-const game = createGame(renderer, updateBestScore);
-
-const refreshContinue = () => {
-  const current = loadCurrentGame();
-  btnContinue.disabled = current === null;
-};
-
-const showEntry = () => {
-  entryEl.classList.remove("hidden");
-  gameEl.classList.add("hidden");
-  renderer.showGameOver(false);
-  refreshContinue();
-};
-
-const showGame = () => {
-  entryEl.classList.add("hidden");
-  gameEl.classList.remove("hidden");
-  renderer.measure();
-  renderer.render(game.state);
-};
+const game = createGame(renderer, ui.updateBestScore);
 
 const bestRecord = loadBestRecord() || { score: 0, durationMs: 0, timestamp: 0 };
-updateBestScore(bestRecord);
+ui.updateBestScore(bestRecord);
 game.setBestRecord(bestRecord);
 
-refreshContinue();
+ui.refreshContinue();
 
 btnStart.addEventListener("click", () => {
   clearCurrentGame();
   game.startNew();
-  showGame();
+  ui.showGame(game.state);
 });
 
 btnContinue.addEventListener("click", () => {
   const current = loadCurrentGame();
   if (!current) return;
   game.continueFrom(current);
-  showGame();
+  ui.showGame(game.state);
 });
 
 btnUndo.addEventListener("click", () => game.undo());
 btnRestart.addEventListener("click", () => game.restart());
 btnBack.addEventListener("click", () => {
-  showEntry();
+  ui.showEntry();
 });
 btnOverRestart.addEventListener("click", () => game.restart());
-btnOverEntry.addEventListener("click", () => showEntry());
+btnOverEntry.addEventListener("click", () => ui.showEntry());
 
 bindInput(boardEl, {
   onMove: (dir) => game.handleMove(dir),

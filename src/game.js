@@ -6,6 +6,7 @@ import {
   snapshotState,
   restoreSnapshot,
   restoreFromSave,
+  clearTileTransientState,
 } from "./board.js";
 import { runAnimation, cancelAnimation } from "./animation.js";
 import { updateElapsed, resetTimer, restoreTimer } from "./timer.js";
@@ -38,7 +39,7 @@ export function createGame(renderer, onBestUpdate) {
   const pruneMergedOut = () => {
     const toRemove = [];
     state.tiles.forEach((tile) => {
-      if (tile.isMergedOut) toRemove.push(tile.id);
+      if (tile.isRemoved()) toRemove.push(tile.id);
     });
     toRemove.forEach((id) => state.tiles.delete(id));
   };
@@ -54,7 +55,7 @@ export function createGame(renderer, onBestUpdate) {
     addRandomTile(state);
     addRandomTile(state);
     state.tiles.forEach((tile) => {
-      tile.isNew = false;
+      tile.clearTransient();
     });
     renderer.clearTransient();
     renderAll();
@@ -92,6 +93,7 @@ export function createGame(renderer, onBestUpdate) {
     renderAll();
     runAnimation(state, ANIM_MS, () => {
       pruneMergedOut();
+      clearTileTransientState(state);
       renderer.clearTransient();
       renderer.render(state);
       if (state.isGameOver) clearCurrentGame();
