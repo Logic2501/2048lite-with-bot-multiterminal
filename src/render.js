@@ -1,4 +1,11 @@
 import { SIZE } from "./board.js";
+import {
+  applyTileStateClasses,
+  colorForTileValue,
+  fontSizeForTileValue,
+  formatTileValue,
+  renderTileLabel,
+} from "./tile-view.js";
 
 export function createRenderer(boardEl, overlayEl) {
   const tileNodes = new Map();
@@ -50,33 +57,6 @@ export function createRenderer(boardEl, overlayEl) {
     return cellPositions[cellIndex] || { x: 0, y: 0 };
   };
 
-  const formatValue = (value) => {
-    if (value < 100000) return { text: String(value), isPow: false };
-    const exp = Math.round(Math.log2(value));
-    return { text: `2^${exp}`, isPow: true, exp };
-  };
-
-  const colorForValue = (value) => {
-    const exp = Math.max(1, Math.round(Math.log2(value)));
-    const base = 92;
-    let light = base;
-    if (exp <= 13) {
-      light = Math.max(38, base - exp * 4.2);
-    } else {
-      light = Math.max(34, base - 13 * 4.2 - (exp - 13) * 1.2);
-    }
-    return `hsl(34, 20%, ${light}%)`;
-  };
-
-  const fontSizeForValue = (display) => {
-    const base = Math.max(14, Math.min(34, measuredTileSize * 0.36));
-    const len = display.isPow ? String(display.exp).length + 1 : display.text.length;
-    if (len <= 2) return `${base}px`;
-    if (len <= 3) return `${base * 0.88}px`;
-    if (len <= 4) return `${base * 0.78}px`;
-    return `${base * 0.68}px`;
-  };
-
   const renderTiles = (state) => {
     const alive = new Set();
     state.tiles.forEach((tile) => {
@@ -89,25 +69,16 @@ export function createRenderer(boardEl, overlayEl) {
         boardEl.appendChild(node);
         tileNodes.set(tile.id, node);
       }
-      const display = formatValue(tile.value);
-      if (display.isPow) {
-        node.innerHTML = `2<span class="exp">${display.exp}</span>`;
-      } else {
-        node.textContent = display.text;
-      }
-      node.style.background = colorForValue(tile.value);
-      node.style.fontSize = fontSizeForValue(display);
+      const display = formatTileValue(tile.value);
+      renderTileLabel(node, display);
+      node.style.background = colorForTileValue(tile.value);
+      node.style.fontSize = fontSizeForTileValue(display, measuredTileSize);
 
       const { x, y } = getTranslate(tile.cell);
       node.style.setProperty("--x", `${x}px`);
       node.style.setProperty("--y", `${y}px`);
 
-      node.classList.remove("new");
-      node.classList.remove("merge");
-      node.classList.remove("no-anim");
-      if (tile.isNew()) node.classList.add("new");
-      if (tile.isNew()) node.classList.add("no-anim");
-      if (tile.isMerged()) node.classList.add("merge");
+      applyTileStateClasses(node, tile);
     });
 
     tileNodes.forEach((node, id) => {
