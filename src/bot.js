@@ -3,12 +3,6 @@ const DEFAULT_DELAY_MS = 180;
 const MIN_DELAY_MS = 150;
 const MAX_DELAY_MS = 360;
 const DELAY_STEP_MS = 20;
-const GRADIENT_WEIGHTS = [
-  [15, 14, 13, 12],
-  [8, 9, 10, 11],
-  [7, 6, 5, 4],
-  [0, 1, 2, 3],
-];
 
 function buildLines(size, dir) {
   const lines = [];
@@ -69,147 +63,208 @@ function simulateMove(snapshot, dir) {
   return { moved, cells: nextCells, scoreGain };
 }
 
-function countEmpty(cells) {
-  let count = 0;
-  cells.forEach((value) => {
-    if (value === 0) count += 1;
-  });
-  return count;
-}
-
-function maxTile(cells) {
-  let max = 0;
-  cells.forEach((value) => {
-    if (value > max) max = value;
-  });
-  return max;
-}
-
-function logValue(value) {
-  return value > 0 ? Math.log2(value) : 0;
-}
-
-function gradientScore(cells, size) {
-  let score = 0;
+function cellsToBoard(cells, size) {
+  const board = [];
   for (let row = 0; row < size; row += 1) {
-    for (let col = 0; col < size; col += 1) {
-      score += logValue(cells[row * size + col]) * GRADIENT_WEIGHTS[row][col];
+    const start = row * size;
+    board.push(cells.slice(start, start + size).map((value) => value || 0));
+  }
+  return board;
+}
+
+function inversePenalty(leftOrTop, rightOrBottom, weight) {
+  if (leftOrTop === 0 && rightOrBottom === 0) return 0;
+  if (leftOrTop >= rightOrBottom) return 0;
+  const p = leftOrTop > 0 ? Math.log2(leftOrTop) : 0;
+  const q = rightOrBottom > 0 ? Math.log2(rightOrBottom) : 0;
+  const diff = q - p;
+  return weight * diff * diff;
+}
+
+function coreOccupancyScore(board, topTiles) {
+  const coreWeights = new Map([
+    ["0,0", 2600],
+    ["0,1", 1800],
+    ["1,0", 1800],
+    ["0,2", 1100],
+    ["2,0", 1100],
+  ]);
+
+  const topSet = new Set(topTiles.slice(0, 5).map((t) => `${t.r},${t.c}`));
+  let score = 0;
+
+  for (const [key, weight] of coreWeights.entries()) {
+    const [r, c] = key.split(",").map(Number);
+    const value = board[r][c] || 0;
+
+    if (topSet.has(key)) {
+      score += weight * (value > 0 ? Math.log2(value) : 0);
+    }
+
+    if (value === 0) {
+      score -= weight * 1.6;
+    }
+
+    if (value > 0 && value <= 8) {
+      score -= weight * 0.8;
+    }
+  }
+
+  return score;
+}
+
+function nearAnchorHighValueScore(topTiles) {
+  let score = 0;
+  for (let i = 1; i < Math.min(topTiles.length, 5); i += 1) {
+    const tile = topTiles[i];
+    const key = `${tile.r},${tile.c}`;
+    const lv = Math.log2(tile.v);
+
+    if (key === "0,1" || key === "1,0") {
+      score += 2400 * lv;
+    } else if (key === "0,2" || key === "2,0") {
+      score += 1400 * lv;
     }
   }
   return score;
 }
 
-function reversePenalty(cells, size) {
-  let penalty = 0;
-  for (let row = 0; row < size; row += 1) {
-    for (let col = 0; col < size - 1; col += 1) {
-      const current = logValue(cells[row * size + col]);
-      const next = logValue(cells[row * size + col + 1]);
-      if (current < next) {
-        penalty += next - current;
-      }
+function analyzeStructure(board) {
+  const flat = [];
+  for (let r = 0; r < 4; r += 1) {
+    for (let c = 0; c < 4; c += 1) {
+      flat.push({ r, c, v: board[r][c] || 0 });
     }
   }
-  for (let col = 0; col < size; col += 1) {
-    for (let row = 0; row < size - 1; row += 1) {
-      const current = logValue(cells[row * size + col]);
-      const next = logValue(cells[(row + 1) * size + col]);
-      if (current < next) {
-        penalty += next - current;
-      }
+
+  const nonZero = flat.filter((x) => x.v > 0).sort((a, b) => b.v - a.v);
+  const topTiles = nonZero.slice(0, 5);
+
+  const coreSet = new Set(["0,0", "0,1", "0,2", "1,0", "2,0"]);
+  const centerSet = new Set(["1,1", "1,2", "2,1", "2,2"]);
+
+  const maxTile = nonZero[0] || { r: 0, c: 0, v: 0 };
+  const maxDistToCorner = maxTile.r + maxTile.c;
+
+  const a = board[0][0] || 0;
+  const b = board[0][1] || 0;
+  const c = board[0][2] || 0;
+  const d = board[1][0] || 0;
+  const e = board[2][0] || 0;
+
+  const coreInverse =
+    inversePenalty(a, b, 1) +
+    inversePenalty(a, d, 1) +
+    inversePenalty(b, c, 1) +
+    inversePenalty(d, e, 1) +
+    inversePenalty(b, d, 1) +
+    inversePenalty(c, e, 1);
+
+  let topInCore = 0;
+  let topInCenter = 0;
+  let largeActiveBackToCore = 0;
+
+  for (const t of topTiles) {
+    const key = `${t.r},${t.c}`;
+    if (coreSet.has(key)) topInCore += 1;
+    if (centerSet.has(key)) topInCenter += 1;
+    if (coreSet.has(key) && !(t.r === 0 && t.c === 0)) {
+      largeActiveBackToCore += 1;
     }
   }
-  return penalty;
+
+  return {
+    maxDistToCorner,
+    coreInverse,
+    topInCore,
+    topInCenter,
+    largeActiveBackToCore,
+  };
 }
 
-function cornerDistancePenalty(cells, size) {
-  const max = maxTile(cells);
-  if (max === 0) return 0;
-  const maxIndex = cells.indexOf(max);
-  const row = Math.floor(maxIndex / size);
-  const col = maxIndex % size;
-  return (row + col) * logValue(max);
-}
-
-function cornerBroken(cells, size) {
-  const corner = cells[0];
-  const max = maxTile(cells);
-  if (corner !== max) return true;
-  const right = cells[1] || 0;
-  const down = cells[size] || 0;
-  return right > corner || down > corner;
-}
-
-function cornerBreakPenalty(cells, size) {
-  if (!cornerBroken(cells, size)) return 0;
-  let penalty = 1;
-  for (let col = 0; col < size - 1; col += 1) {
-    const current = cells[col];
-    const next = cells[col + 1];
-    if (current < next) penalty += next - current;
-  }
-  for (let row = 0; row < size - 1; row += 1) {
-    const current = cells[row * size];
-    const next = cells[(row + 1) * size];
-    if (current < next) penalty += next - current;
-  }
-  return penalty;
-}
-
-function mergePotential(cells, size) {
-  let merges = 0;
-  for (let row = 0; row < size; row += 1) {
-    for (let col = 0; col < size; col += 1) {
-      const value = cells[row * size + col];
-      if (value === 0) continue;
-      if (col + 1 < size && cells[row * size + col + 1] === value) {
-        merges += logValue(value);
-      }
-      if (row + 1 < size && cells[(row + 1) * size + col] === value) {
-        merges += logValue(value);
-      }
+function evaluateBoard(board, prevBoard = null) {
+  const flat = [];
+  for (let r = 0; r < 4; r += 1) {
+    for (let c = 0; c < 4; c += 1) {
+      flat.push({ r, c, v: board[r][c] || 0 });
     }
   }
-  return merges;
-}
 
-function recoveryScore(beforeCells, afterCells, size) {
-  if (!cornerBroken(beforeCells, size)) return 0;
-  const distanceGain =
-    cornerDistancePenalty(beforeCells, size) - cornerDistancePenalty(afterCells, size);
-  const reverseGain = reversePenalty(beforeCells, size) - reversePenalty(afterCells, size);
-  const gradientGain = gradientScore(afterCells, size) - gradientScore(beforeCells, size);
-  const unbrokenBonus = cornerBroken(afterCells, size) ? 0 : 6;
-  return distanceGain * 2 + reverseGain + gradientGain * 0.12 + unbrokenBonus;
-}
+  const nonZero = flat.filter((x) => x.v > 0).sort((a, b) => b.v - a.v);
+  const topTiles = nonZero.slice(0, 6);
+  const maxTile = topTiles[0] || { r: 0, c: 0, v: 0 };
 
-function evaluate(snapshot, result) {
-  const gradient = gradientScore(result.cells, snapshot.size);
-  const reverse = reversePenalty(result.cells, snapshot.size);
-  const cornerDistance = cornerDistancePenalty(result.cells, snapshot.size);
-  const cornerBreak = cornerBreakPenalty(result.cells, snapshot.size);
-  const empty = countEmpty(result.cells);
-  const merge = mergePotential(result.cells, snapshot.size);
-  const recovery = recoveryScore(snapshot.cells, result.cells, snapshot.size);
-  return (
-    4 * gradient -
-    8 * reverse -
-    40 * cornerDistance -
-    120 * cornerBreak +
-    12 * empty +
-    6 * merge +
-    30 * recovery
-  );
+  const coreSet = new Set(["0,0", "0,1", "0,2", "1,0", "2,0"]);
+  const centerSet = new Set(["1,1", "1,2", "2,1", "2,2"]);
+
+  let score = 0;
+
+  // 1) 最大数守角
+  if (maxTile.r === 0 && maxTile.c === 0) {
+    score += 5000;
+  } else {
+    const dist = maxTile.r + maxTile.c;
+    score -= 4000 + dist * 1800;
+  }
+
+  // 2) 核心 5 格单调
+  const a = board[0][0] || 0;
+  const b = board[0][1] || 0;
+  const c = board[0][2] || 0;
+  const d = board[1][0] || 0;
+  const e = board[2][0] || 0;
+
+  score -= inversePenalty(a, b, 2600);
+  score -= inversePenalty(a, d, 2600);
+  score -= inversePenalty(b, c, 1600);
+  score -= inversePenalty(d, e, 1600);
+  score -= inversePenalty(b, d, 1200);
+  score -= inversePenalty(c, e, 900);
+
+  // 3) 核心 5 格占位质量
+  score += coreOccupancyScore(board, topTiles);
+
+  // 4) 中心禁区
+  for (let i = 0; i < Math.min(topTiles.length, 5); i += 1) {
+    const t = topTiles[i];
+    const key = `${t.r},${t.c}`;
+    if (centerSet.has(key)) {
+      score -= 3200 * Math.log2(t.v);
+    }
+  }
+
+  // 5) 大数贴近锚角边
+  score += nearAnchorHighValueScore(topTiles);
+
+  // 6) 活动空间
+  const emptyCount = flat.filter((x) => x.v === 0).length;
+  score += emptyCount * 120;
+
+  // 7) 恢复趋势
+  if (prevBoard) {
+    const prevState = analyzeStructure(prevBoard);
+    const currState = analyzeStructure(board);
+    score += (prevState.coreInverse - currState.coreInverse) * 3200;
+    score += (currState.topInCore - prevState.topInCore) * 2600;
+    score +=
+      (currState.largeActiveBackToCore - prevState.largeActiveBackToCore) * 2200;
+    score += (prevState.topInCenter - currState.topInCenter) * 2600;
+    score += (prevState.maxDistToCorner - currState.maxDistToCorner) * 2200;
+  }
+
+  return score;
 }
 
 export function chooseBotMove(snapshot) {
   if (!snapshot || snapshot.isGameOver) return null;
 
   let best = null;
+  const prevBoard = cellsToBoard(snapshot.cells, snapshot.size);
   DIRS.forEach((dir, index) => {
     const result = simulateMove(snapshot, dir);
     if (!result.moved) return;
-    const score = evaluate(snapshot, result) - index * 0.001;
+    const nextBoard = cellsToBoard(result.cells, snapshot.size);
+    const score = evaluateBoard(nextBoard, prevBoard) - index * 0.001;
     if (!best || score > best.score) {
       best = { dir, score };
     }
