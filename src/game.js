@@ -18,6 +18,18 @@ export function createGame(renderer, onBestUpdate) {
   let bestRecord = null;
   let scoreListener = null;
 
+  const buildRecordState = () => ({
+    size: state.size,
+    cells: state.boardCells.map((id) => {
+      if (id === null) return 0;
+      const tile = state.tiles.get(id);
+      return tile ? tile.value : 0;
+    }),
+    score: state.score,
+    elapsedMs: state.elapsedMs,
+    isGameOver: state.isGameOver,
+  });
+
   const updateBest = () => {
     if (!bestRecord) {
       bestRecord = { score: 0, durationMs: 0, timestamp: 0 };
@@ -90,12 +102,12 @@ export function createGame(renderer, onBestUpdate) {
   };
 
   const handleMove = (dir) => {
-    if (state.isAnimating || state.isGameOver) return;
+    if (state.isAnimating || state.isGameOver) return false;
     const snapshot = snapshotState(state);
     const result = moveTiles(state, dir);
     if (!result.moved) {
       restoreSnapshot(state, snapshot);
-      return;
+      return false;
     }
     state.undoStack = [snapshot];
     updateElapsed(state);
@@ -112,12 +124,13 @@ export function createGame(renderer, onBestUpdate) {
       renderer.render(state);
       if (state.isGameOver) clearCurrentGame();
     });
+    return true;
   };
 
   const undo = () => {
-    if (state.isAnimating) return;
+    if (state.isAnimating) return false;
     const snapshot = state.undoStack.pop();
-    if (!snapshot) return;
+    if (!snapshot) return false;
     restoreSnapshot(state, snapshot);
     pruneMergedOut();
     restoreTimer(state, state.elapsedMs);
@@ -125,6 +138,7 @@ export function createGame(renderer, onBestUpdate) {
     renderer.clearTransient();
     renderAll();
     notifyScore();
+    return true;
   };
 
   const restart = () => {
@@ -136,15 +150,13 @@ export function createGame(renderer, onBestUpdate) {
   };
 
   const getBotState = () => ({
-    size: state.size,
-    cells: state.boardCells.map((id) => {
-      if (id === null) return 0;
-      const tile = state.tiles.get(id);
-      return tile ? tile.value : 0;
-    }),
-    score: state.score,
+    ...buildRecordState(),
     isAnimating: state.isAnimating,
-    isGameOver: state.isGameOver,
+  });
+
+  const getRecordState = () => ({
+    ...buildRecordState(),
+    isAnimating: state.isAnimating,
   });
 
   return {
@@ -165,6 +177,7 @@ export function createGame(renderer, onBestUpdate) {
       notifyScore();
     },
     getBotState,
+    getRecordState,
     clearSave,
   };
 }

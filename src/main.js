@@ -2,6 +2,7 @@ import { createRenderer } from "./render.js";
 import { createGame } from "./game.js";
 import { bindInput } from "./input.js";
 import { createStrategyBot, DELAY_STEP_MS } from "./bot.js";
+import { createExpertRecorder } from "./recorder.js";
 import {
   loadBestRecord,
   loadCurrentGame,
@@ -14,6 +15,7 @@ const entryEl = document.getElementById("entry");
 const gameEl = document.getElementById("game");
 const boardEl = document.getElementById("board");
 const overlayEl = document.getElementById("game-over");
+const actionsEl = document.querySelector(".actions");
 
 const btnStart = document.getElementById("btn-start");
 const btnContinue = document.getElementById("btn-continue");
@@ -36,6 +38,24 @@ const botSpeedEl = document.getElementById("bot-speed");
 const renderer = createRenderer(boardEl, overlayEl);
 let gameOverOverlayDismissed = false;
 
+const game = createGame(renderer, updateBestScore);
+
+const recorderControls = document.createElement("div");
+recorderControls.className = "bot-controls";
+
+const btnRecord = document.createElement("button");
+btnRecord.type = "button";
+btnRecord.className = "btn ghost";
+btnRecord.textContent = "开始录制";
+btnRecord.setAttribute("aria-label", "开始或停止录制专家操作");
+
+const recordStatusEl = document.createElement("span");
+recordStatusEl.className = "bot-speed";
+recordStatusEl.textContent = "未录制";
+
+recorderControls.append(btnRecord, recordStatusEl);
+if (actionsEl) actionsEl.append(recorderControls);
+
 const renderGameView = () => {
   renderer.render(game.state);
   if (game.state.isGameOver && gameOverOverlayDismissed) {
@@ -55,16 +75,38 @@ const updateEntryRecord = (record) => {
   recordDateEl.textContent = new Date(record.timestamp).toLocaleString();
 };
 
-const updateBestScore = (record) => {
+function updateBestScore(record) {
   bestScoreEl.textContent = record ? record.score : 0;
   updateEntryRecord(record);
   if (record) saveBestRecord(record);
-};
+}
 
-const game = createGame(renderer, updateBestScore);
 game.setScoreListener((score) => {
   scoreEl.textContent = score;
 });
+
+const syncBotButtons = ({ recording, delayMs, minDelayMs, maxDelayMs }) => {
+  if (btnBot) btnBot.disabled = recording;
+  if (btnBotFaster) btnBotFaster.disabled = recording || delayMs <= minDelayMs;
+  if (btnBotSlower) btnBotSlower.disabled = recording || delayMs >= maxDelayMs;
+};
+
+let recorderUiState = {
+  recording: false,
+  steps: 0,
+};
+
+const updateRecorderUi = ({ recording, steps }) => {
+  recorderUiState = { recording, steps };
+  btnRecord.textContent = recording ? "停止录制" : "开始录制";
+  btnRecord.classList.toggle("active", recording);
+  recordStatusEl.textContent = recording ? `${steps}步` : "未录制";
+  syncBotButtons({
+    recording,
+    delayMs: bot.getDelay(),
+    ...bot.getDelayConfig(),
+  });
+};
 
 const updateBotUi = ({ running, delayMs, minDelayMs, maxDelayMs }) => {
   if (!btnBot) return;
@@ -73,12 +115,12 @@ const updateBotUi = ({ running, delayMs, minDelayMs, maxDelayMs }) => {
   if (botSpeedEl) {
     botSpeedEl.textContent = `${delayMs}ms`;
   }
-  if (btnBotFaster) {
-    btnBotFaster.disabled = delayMs <= minDelayMs;
-  }
-  if (btnBotSlower) {
-    btnBotSlower.disabled = delayMs >= maxDelayMs;
-  }
+  syncBotButtons({
+    recording: recorderUiState.recording,
+    delayMs,
+    minDelayMs,
+    maxDelayMs,
+  });
 };
 
 const bot = createStrategyBot({
@@ -88,19 +130,69 @@ const bot = createStrategyBot({
   delayMs: 180,
 });
 
+const recorder = createExpertRecorder({
+  getState: () => game.getRecordState(),
+  onChange: updateRecorderUi,
+});
+
 const stopBot = () => {
   bot.stop();
 };
 
+const stopRecorder = (reason) => {
+  recorder.stop(reason);
+};
+
+const recordMove = (dir, actor = "human") => {
+  const before = game.getRecordState();
+  const applied = game.handleMove(dir);
+  const after = game.getRecordState();
+  if (recorder.isRecording()) {
+    recorder.recordStep({
+      type: "move",
+      action: dir,
+      actor,
+      before,
+      after,
+      applied,
+    });
+  }
+  if (applied && after.isGameOver && recorder.isRecording()) {
+    stopRecorder("game_over");
+  }
+};
+
 const handlePlayerMove = (dir) => {
   stopBot();
-  game.handleMove(dir);
+  recordMove(dir, "human");
 };
 
 const handleUndo = () => {
   stopBot();
   gameOverOverlayDismissed = false;
-  game.undo();
+  const before = game.getRecordState();
+  const applied = game.undo();
+  const after = game.getRecordState();
+  if (recorder.isRecording()) {
+    recorder.recordStep({
+      type: "undo",
+      action: "undo",
+      actor: "human",
+      before,
+      after,
+      applied,
+    });
+  }
+};
+
+const toggleRecorder = () => {
+  if (!gameEl || gameEl.classList.contains("hidden")) return;
+  if (recorder.isRecording()) {
+    stopRecorder("manual");
+    return;
+  }
+  stopBot();
+  recorder.start();
 };
 
 const refreshContinue = () => {
@@ -110,6 +202,7 @@ const refreshContinue = () => {
 
 const showEntry = () => {
   stopBot();
+  stopRecorder("leave_game");
   gameOverOverlayDismissed = false;
   entryEl.classList.remove("hidden");
   gameEl.classList.add("hidden");
@@ -132,6 +225,7 @@ refreshContinue();
 
 btnStart.addEventListener("click", () => {
   stopBot();
+  stopRecorder("start_new");
   gameOverOverlayDismissed = false;
   clearCurrentGame();
   game.startNew();
@@ -140,6 +234,7 @@ btnStart.addEventListener("click", () => {
 
 btnContinue.addEventListener("click", () => {
   stopBot();
+  stopRecorder("continue");
   gameOverOverlayDismissed = false;
   const current = loadCurrentGame();
   if (!current) return;
@@ -150,6 +245,7 @@ btnContinue.addEventListener("click", () => {
 btnUndo.addEventListener("click", handleUndo);
 btnRestart.addEventListener("click", () => {
   stopBot();
+  stopRecorder("restart");
   gameOverOverlayDismissed = false;
   game.restart();
 });
@@ -158,7 +254,7 @@ btnBack.addEventListener("click", () => {
 });
 if (btnBot) {
   btnBot.addEventListener("click", () => {
-    if (game.state.isGameOver) return;
+    if (game.state.isGameOver || recorder.isRecording()) return;
     bot.toggle();
   });
 }
@@ -174,6 +270,7 @@ if (btnBotFaster) {
 }
 btnOverRestart.addEventListener("click", () => {
   stopBot();
+  stopRecorder("restart");
   gameOverOverlayDismissed = false;
   game.restart();
 });
@@ -181,10 +278,12 @@ btnOverBoard.addEventListener("click", () => {
   gameOverOverlayDismissed = true;
   renderer.showGameOver(false);
 });
+btnRecord.addEventListener("click", toggleRecorder);
 
 bindInput(boardEl, {
   onMove: handlePlayerMove,
   onUndo: handleUndo,
+  onToggleRecord: toggleRecorder,
 });
 
 window.addEventListener("resize", () => {
@@ -196,4 +295,8 @@ updateBotUi({
   running: false,
   delayMs: bot.getDelay(),
   ...bot.getDelayConfig(),
+});
+updateRecorderUi({
+  recording: recorder.isRecording(),
+  steps: recorder.getActiveSession() ? recorder.getActiveSession().steps.length : 0,
 });

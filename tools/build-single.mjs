@@ -105,14 +105,22 @@ const main = () => {
   const js = bundleJS(entryPath);
 
   let output = html;
-  output = output.replace(
-    /<link\s+rel=["']stylesheet["']\s+href=["']\.\/src\/style\.css["']\s*\/>/i,
-    `<style>\n${css}\n</style>`
-  );
-  output = output.replace(
-    /<script\s+type=["']module["']\s+src=["']\.\/src\/main\.js["']\s*><\/script>/i,
-    `<script>\n${js}\n</script>`
-  );
+  if (/<link\s+rel=["']stylesheet["']\s+href=["']\.\/src\/style\.css["']\s*\/>/i.test(output)) {
+    output = output.replace(
+      /<link\s+rel=["']stylesheet["']\s+href=["']\.\/src\/style\.css["']\s*\/>/i,
+      `<style>\n${css}\n</style>`
+    );
+  } else {
+    output = output.replace(/<style>[\s\S]*?<\/style>/i, `<style>\n${css}\n</style>`);
+  }
+  if (/<script\s+type=["']module["']\s+src=["']\.\/src\/main\.js["']\s*><\/script>/i.test(output)) {
+    output = output.replace(
+      /<script\s+type=["']module["']\s+src=["']\.\/src\/main\.js["']\s*><\/script>/i,
+      `<script>\n${js}\n</script>`
+    );
+  } else {
+    output = output.replace(/<script>[\s\S]*?<\/script>/i, `<script>\n${js}\n</script>`);
+  }
 
   if (/<meta\s+name=["']app-version["']/.test(output)) {
     output = output.replace(

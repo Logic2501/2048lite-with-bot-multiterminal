@@ -9,7 +9,7 @@ const KEY_MAP = {
   KeyD: "right",
 };
 
-export function bindInput(targetEl, { onMove, onUndo }) {
+export function bindInput(targetEl, { onMove, onUndo, onToggleRecord }) {
   let touchStart = null;
   const threshold = 28;
 
@@ -18,6 +18,11 @@ export function bindInput(targetEl, { onMove, onUndo }) {
     if (event.code === "KeyZ" || event.code === "Backspace") {
       event.preventDefault();
       if (onUndo) onUndo();
+      return;
+    }
+    if (event.code === "KeyR") {
+      event.preventDefault();
+      if (onToggleRecord) onToggleRecord();
       return;
     }
     const dir = KEY_MAP[event.code];
